@@ -1,47 +1,33 @@
-# Import necessary libraries and modules
-from scipy.ndimage import (
-    gaussian_filter1d as gf,
-)  # Import the Gaussian filter function from SciPy
-import xarray as xr  # Import xarray for working with labeled multi-dimensional arrays
+import numpy as np
+import xarray as xr
+from scipy.ndimage import gaussian_filter1d
 
 
-# Define a function for Gaussian filtering of vertical profiles in a dataset
-def gauss_filter_z(ds, dvars=["temp", "psal"], std=4):
+def gauss_filter_z(ds, dvars=["temp", "psal"], sigma_dbar=2.0,
+                   pres_dim="pres", min_frac=0.5, fill_gaps=False):
+    """NaN-aware vertical Gaussian smoothing via normalized convolution.
+
+    sigma_dbar : Gaussian std in dbar (grid-independent).
+    min_frac   : drop points where < this fraction of kernel weight is valid data.
+    fill_gaps  : if False, only originally-valid samples are returned; if True,
+                 small interior gaps are also filled.
     """
-    Apply Gaussian filtering to vertical profiles of selected variables in a dataset.
+    ax = ds[dvars[0]].get_axis_num(pres_dim)
+    dz = float(np.abs(np.diff(ds[pres_dim].values)).mean())
+    sigma = sigma_dbar / dz
 
-    Parameters:
-    -----------
-    ds : xarray.Dataset
-        The input dataset containing vertical profiles of oceanographic variables.
-
-    dvars : list of str, optional
-        A list of variable names to which Gaussian filtering will be applied.
-        Default is ['temp', 'psal'].
-
-    std : int or float, optional
-        The standard deviation of the Gaussian filter. Default is 4.
-
-    Returns:
-    --------
-    ds : xarray.Dataset
-        The modified dataset with Gaussian-filtered variables.
-    """
-    # Iterate through the specified variables for Gaussian filtering
     for d in dvars:
-        # Apply Gaussian filtering with the specified standard deviation
-        ds[d + "_sm"] = xr.DataArray(
-            gf(
-                ds[d].data, std
-            ),  # Gaussian filter with the specified standard deviation
-            dims={
-                "n_prof": ds.n_prof.data,
-                "pres": ds.pres.data,
-            },  # Preserve dimensions
-            coords={
-                "n_prof": ds.n_prof.data,
-                "pres": ds.pres.data,
-            },  # Preserve coordinates
-        )
+        a = ds[d].data.astype("float32", copy=False)
+        m = np.isfinite(a)
 
-    return ds  # Return the modified dataset with Gaussian-filtered variables
+        num = gaussian_filter1d(np.where(m, a, np.float32(0.0)), sigma, axis=ax,
+                                mode="constant", cval=0.0)
+        den = gaussian_filter1d(m.astype("float32"), sigma, axis=ax,
+                                mode="constant", cval=0.0)
+
+        valid = (den > min_frac) if fill_gaps else (m & (den > min_frac))
+        np.divide(num, den, out=num, where=valid)
+        num[~valid] = np.nan
+
+        ds[d + "_sm"] = xr.DataArray(num, dims=ds[d].dims, coords=ds[d].coords)
+    return ds

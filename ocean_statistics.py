@@ -331,7 +331,7 @@ def calc_climatology(x, v=None, output=None):
 
 def calc_grid_cell_area(ds):
     """
-    Calculate the area of each grid cell in a given dataset or DataArray using precomputed distances.
+    Calculate the area of each grid cell in km^2 in a given dataset or DataArray using precomputed distances.
 
     Args:
         ds (xarray.Dataset or xarray.DataArray): Input dataset or dataarray containing latitude (and optionally longitude) coordinates.
